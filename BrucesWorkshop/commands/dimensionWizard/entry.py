@@ -19,11 +19,12 @@ ORIGIN_MODE = 'origin_mode'
 POINT_SELECTION = 'point_selection'
 DIMENSION_SPACING = 'dimension_spacing'
 SCALE_PARAMETER = 'scale_parameter'
+SCALE_PARAMETER_VALUE = 'scale_parameter_value'
 
 # Specify that the command will be promoted to the panel.
 IS_PROMOTED = False
 
-# TODO *** Define the location where the command button will be created. ***
+# Define the location where the command button will be created. ***
 # This is done by specifying the workspace, the tab, and the panel, and the 
 # command it will be inserted beside. Not providing the command to position it
 # will insert it at the end.
@@ -100,7 +101,7 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
 
     # Create a simple text box input.
     inputs.addTextBoxCommandInput(SCALE_PARAMETER, 'Scale Parameter', '', 1, False)
-
+    inputs.addTextBoxCommandInput(SCALE_PARAMETER_VALUE, '', '', 1, True)
     
     defaultLengthUnits = app.activeProduct.unitsManager.defaultLengthUnits
     default_value = adsk.core.ValueInput.createByString('2')
@@ -223,10 +224,15 @@ def command_execute(args: adsk.core.CommandEventArgs):
     yLabel = yLabelBase
     for (point, x) in sorted(negXpoints, key=itemgetter(1)):
         if not point.isFullyConstrained:
-            textPalette.writeText(f'negXpoints at ({point.geometry.x}, {point.geometry.y})')
+            textPalette.writeText(f'negXpoints at ({point.geometry.x}, {point.geometry.y}) origin ({origin.geometry.x}, {origin.geometry.y})')
+            textPalette.writeText(f'hText = adsk.core.Point3D.create({origin.geometry.x - (x - origin.geometry.x)/2}, yLabel, 0)')
             adsk.doEvents()
-            
-            hText = adsk.core.Point3D.create(x + (origin.geometry.x - x)/2, yLabel, 0)
+
+            if sketch.originPoint == point:
+                ui.messageBox(f'ITS THE ORIGIN', CMD_NAME)
+                continue
+                        
+            hText = adsk.core.Point3D.create(origin.geometry.x - (x - origin.geometry.x)/2, yLabel, 0)
             distanceDimension = dim.addDistanceDimension(origin, point, horizontal, hText)
 
             if scale_value:
@@ -239,6 +245,11 @@ def command_execute(args: adsk.core.CommandEventArgs):
         if not point.isFullyConstrained:
             textPalette.writeText(f'posXpoints at ({point.geometry.x}, {point.geometry.y})')
             adsk.doEvents()
+
+            if sketch.originPoint == point:
+                ui.messageBox(f'ITS THE ORIGIN', CMD_NAME)
+                continue
+
             
             hText = adsk.core.Point3D.create(origin.geometry.x + (x - origin.geometry.x)/2, yLabel, 0)
             distanceDimension = dim.addDistanceDimension(origin, point, horizontal, hText)
@@ -253,8 +264,13 @@ def command_execute(args: adsk.core.CommandEventArgs):
         if not point.isFullyConstrained:
             textPalette.writeText(f'negYpoints at ({point.geometry.x}, {point.geometry.y})')
             adsk.doEvents()
+
+            if sketch.originPoint == point:
+                ui.messageBox(f'ITS THE ORIGIN', CMD_NAME)
+                continue
+
             
-            hText = adsk.core.Point3D.create(xLabel, y + (origin.geometry.y - y)/2, 0)
+            hText = adsk.core.Point3D.create(xLabel, origin.geometry.y - (y -origin.geometry.y)/2, 0)
             distanceDimension = dim.addDistanceDimension(origin, point, vertical, hText)
 
             if scale_value:
@@ -267,6 +283,11 @@ def command_execute(args: adsk.core.CommandEventArgs):
         if not point.isFullyConstrained:
             textPalette.writeText(f'posYpoints at ({point.geometry.x}, {point.geometry.y})')
             adsk.doEvents()
+
+            if sketch.originPoint == point:
+                ui.messageBox(f'ITS THE ORIGIN', CMD_NAME)
+                continue
+
             
             hText = adsk.core.Point3D.create(xLabel, origin.geometry.y + (y - origin.geometry.y)/2, 0)
             distanceDimension = dim.addDistanceDimension(origin, point, vertical, hText)
@@ -276,7 +297,8 @@ def command_execute(args: adsk.core.CommandEventArgs):
                 distanceDimension.parameter.expression = f'{parameter_name} * {value}'
             xLabel += label_offset
       
-
+    textPalette.writeText(f'Command execution complete')
+    adsk.doEvents()
 
 
 # This event handler is called when the command needs to compute a new preview in the graphics window.
@@ -343,6 +365,7 @@ def command_validate_input(args: adsk.core.ValidateInputsEventArgs):
     #     return
     
     scale_parameter: adsk.core.TextBoxCommandInput = inputs.itemById(SCALE_PARAMETER)
+    scale_parameter_value: adsk.core.TextBoxCommandInput = inputs.itemById(SCALE_PARAMETER_VALUE)
     
     parameter_name = scale_parameter.text
 
@@ -358,12 +381,16 @@ def command_validate_input(args: adsk.core.ValidateInputsEventArgs):
         parameter = design.allParameters.itemByName(parameter_name)
         if parameter:
             # check that its a valid length
+            scale_parameter_value.formattedText = f'<span style=" color:#000000;">{parameter.value}</span>'
             args.areInputsValid = True
         else:
             args.areInputsValid = False
             # make it red
             # scale_parameter.formattedText = f'<span style=" color:#ff0000;">{parameter_name}</span>'
+            scale_parameter_value.formattedText = f'<span style=" color:#ff0000;">Parameter not found</span>'
             return
+    else:
+        scale_parameter_value.formattedText = ''
         
     args.areInputsValid = True
 
@@ -376,3 +403,6 @@ def command_destroy(args: adsk.core.CommandEventArgs):
 
     global local_handlers
     local_handlers = []
+
+    textPalette.writeText(f'command destroy complete')
+    adsk.doEvents()
