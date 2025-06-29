@@ -284,7 +284,7 @@ def command_execute(args: adsk.core.CommandEventArgs):
         if not point.isFullyConstrained:
             futil.log(f'negYpoints at ({point.geometry.x}, {point.geometry.y})')
 
-            create_dimension(xLabel, origin.geometry.y - (y -origin.geometry.y)/2, point, origin, vertical, scale_value, parameter_name, dim)
+            create_dimension(xLabel, origin.geometry.y - (y -origin.geometry.y)/2, origin, point, vertical, scale_value, parameter_name, dim)
             
 
             # if sketch.originPoint == point:
