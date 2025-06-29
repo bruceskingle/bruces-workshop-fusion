@@ -7,12 +7,8 @@ from operator import itemgetter
 
 app = adsk.core.Application.get()
 ui = app.userInterface
-palettes = ui.palettes
-textPalette = palettes.itemById("TextCommands")
-textPalette.isVisible = True
 
-# TODO *** Specify the command identity information. ***
-CMD_ID = f'{config.COMPANY_NAME}_{config.ADDIN_NAME}_cmdDialog'
+CMD_ID = f'{config.COMPANY_NAME}_{config.ADDIN_NAME}_dimensionWizard'
 CMD_NAME = 'Dimension Wizard'
 CMD_Description = 'Add horizontal and vertical linear dimensions to all points in the active sketch which are not fully constrained.'
 ORIGIN_MODE = 'origin_mode'
@@ -119,13 +115,32 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     futil.add_handler(args.command.destroy, command_destroy, local_handlers=local_handlers)
 
 
+def create_dimension(xLabel: float, yLabel: float, point: adsk.fusion.SketchPoint, origin: adsk.fusion.SketchPoint, horizontal:  adsk.fusion.DimensionOrientations, scale_value: float, parameter_name: str, dim: adsk.fusion.SketchDimensions
+):
+    if origin == point:
+        ui.messageBox(f'ITS THE ORIGIN', CMD_NAME)
+        return
+                
+    hText = adsk.core.Point3D.create(xLabel, yLabel, 0)
+
+    try:
+        distanceDimension = dim.addDistanceDimension(origin, point, horizontal, hText)
+    except:
+        return
+    
+    distanceDimension.attributes.add(config.COMPANY_NAME, config.ATTR_CREATEDBY, CMD_NAME)
+
+    if scale_value:
+        value = distanceDimension.value / scale_value
+        distanceDimension.parameter.expression = f'{parameter_name} * {value}'
+
+
+
 # This event handler is called when the user clicks the OK button in the command dialog or 
 # is immediately called after the created event not command inputs were created for the dialog.
 def command_execute(args: adsk.core.CommandEventArgs):
     # General logging for debug.
     futil.log(f'{CMD_NAME} Command Execute Event')
-
-    # TODO ******************************** Your code here ********************************
 
     product = app.activeProduct
     design = adsk.fusion.Design.cast(product)
@@ -135,8 +150,8 @@ def command_execute(args: adsk.core.CommandEventArgs):
     
 
 
-    textPalette.writeText(f'"{app.activeDocument.name}" is the active Document.')
-    adsk.doEvents()
+    futil.log(f'"{app.activeDocument.name}" is the active Document.')
+    
 
     target = app.activeEditObject
     sketch = adsk.fusion.Sketch.cast(target)
@@ -153,8 +168,8 @@ def command_execute(args: adsk.core.CommandEventArgs):
     spacing_control: adsk.core.ValueCommandInput = inputs.itemById(DIMENSION_SPACING)
     label_offset = spacing_control.value
 
-    textPalette.writeText(f'label_offset="{label_offset}" spacing_control.expression="{spacing_control.expression}" spacing_control.isValidExpression={spacing_control.isValidExpression}')
-    adsk.doEvents()
+    futil.log(f'label_offset="{label_offset}" spacing_control.expression="{spacing_control.expression}" spacing_control.isValidExpression={spacing_control.isValidExpression}')
+    
 
     if origin_mode.listItems.item(0).isSelected:
         origin = sketch.originPoint
@@ -191,19 +206,19 @@ def command_execute(args: adsk.core.CommandEventArgs):
             hasVertical = False
 
             for dimension in point.sketchDimensions:
-                textPalette.writeText(f'Existing dimension at ({dimension.textPosition.x}, {dimension.textPosition.y}) token "{dimension.entityToken}" has classType "{dimension.classType()}" objectType "{dimension.objectType}.')
+                futil.log(f'Existing dimension at ({dimension.textPosition.x}, {dimension.textPosition.y}) token "{dimension.entityToken}" has classType "{dimension.classType()}" objectType "{dimension.objectType}.')
 
                 ld = adsk.fusion.SketchLinearDimension.cast(dimension)
-                if not ld:
-                    textPalette.writeText(f'NON linear')
-                else:
-                    textPalette.writeText(f'Its linear orientation "{ld.orientation}.')
+                if ld:
+                #     textPalette.writeText(f'NON linear')
+                # else:
+                    futil.log(f'Its linear orientation "{ld.orientation}.')
                     if ld.orientation == adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation:
                         hasHorizontal = True
                     elif ld.orientation == adsk.fusion.DimensionOrientations.VerticalDimensionOrientation:
                         hasVertical = True
 
-                adsk.doEvents()
+                
             
             if not hasHorizontal:
                 if point.geometry.x < origin.geometry.x:
@@ -224,81 +239,105 @@ def command_execute(args: adsk.core.CommandEventArgs):
     yLabel = yLabelBase
     for (point, x) in sorted(negXpoints, key=itemgetter(1)):
         if not point.isFullyConstrained:
-            textPalette.writeText(f'negXpoints at ({point.geometry.x}, {point.geometry.y}) origin ({origin.geometry.x}, {origin.geometry.y})')
-            textPalette.writeText(f'hText = adsk.core.Point3D.create({origin.geometry.x - (x - origin.geometry.x)/2}, yLabel, 0)')
-            adsk.doEvents()
+            futil.log(f'negXpoints at ({point.geometry.x}, {point.geometry.y}) origin ({origin.geometry.x}, {origin.geometry.y})')
+            futil.log(f'hText = adsk.core.Point3D.create({origin.geometry.x - (x - origin.geometry.x)/2}, yLabel, 0)')
+            
+            create_dimension(origin.geometry.x - (x - origin.geometry.x)/2, yLabel, point, origin, horizontal, scale_value, parameter_name, dim)
 
-            if sketch.originPoint == point:
-                ui.messageBox(f'ITS THE ORIGIN', CMD_NAME)
-                continue
+            # if sketch.originPoint == point:
+            #     ui.messageBox(f'ITS THE ORIGIN', CMD_NAME)
+            #     continue
                         
-            hText = adsk.core.Point3D.create(origin.geometry.x - (x - origin.geometry.x)/2, yLabel, 0)
-            distanceDimension = dim.addDistanceDimension(origin, point, horizontal, hText)
+            # hText = adsk.core.Point3D.create(origin.geometry.x - (x - origin.geometry.x)/2, yLabel, 0)
+            # distanceDimension = dim.addDistanceDimension(origin, point, horizontal, hText)
+            # distanceDimension.attributes.add(config.COMPANY_NAME, config.ATTR_CREATEDBY, CMD_NAME)
 
-            if scale_value:
-                value = distanceDimension.value / scale_value
-                distanceDimension.parameter.expression = f'{parameter_name} * {value}'
+            # if scale_value:
+            #     value = distanceDimension.value / scale_value
+            #     distanceDimension.parameter.expression = f'{parameter_name} * {value}'
             yLabel += label_offset
     
     yLabel = yLabelBase
     for (point, x) in sorted(posXpoints, key=itemgetter(1)):
         if not point.isFullyConstrained:
-            textPalette.writeText(f'posXpoints at ({point.geometry.x}, {point.geometry.y})')
-            adsk.doEvents()
+            futil.log(f'posXpoints at ({point.geometry.x}, {point.geometry.y})')
+            
 
-            if sketch.originPoint == point:
-                ui.messageBox(f'ITS THE ORIGIN', CMD_NAME)
-                continue
+            create_dimension(origin.geometry.x + (x - origin.geometry.x)/2, yLabel, point, origin, horizontal, scale_value, parameter_name, dim)
+
+            # if sketch.originPoint == point:
+            #     ui.messageBox(f'ITS THE ORIGIN', CMD_NAME)
+            #     continue
 
             
-            hText = adsk.core.Point3D.create(origin.geometry.x + (x - origin.geometry.x)/2, yLabel, 0)
-            distanceDimension = dim.addDistanceDimension(origin, point, horizontal, hText)
+            # hText = adsk.core.Point3D.create(origin.geometry.x + (x - origin.geometry.x)/2, yLabel, 0)
+            # distanceDimension = dim.addDistanceDimension(origin, point, horizontal, hText)
+            # distanceDimension.attributes.add(config.COMPANY_NAME, config.ATTR_CREATEDBY, CMD_NAME)
 
-            if scale_value:
-                value = distanceDimension.value / scale_value
-                distanceDimension.parameter.expression = f'{parameter_name} * {value}'
+            # if scale_value:
+            #     value = distanceDimension.value / scale_value
+            #     distanceDimension.parameter.expression = f'{parameter_name} * {value}'
             yLabel += label_offset
     
     xLabel = xLabelBase
     for (point, y) in sorted(negYpoints, key=itemgetter(1)):
         if not point.isFullyConstrained:
-            textPalette.writeText(f'negYpoints at ({point.geometry.x}, {point.geometry.y})')
-            adsk.doEvents()
+            futil.log(f'negYpoints at ({point.geometry.x}, {point.geometry.y})')
 
-            if sketch.originPoint == point:
-                ui.messageBox(f'ITS THE ORIGIN', CMD_NAME)
-                continue
+            create_dimension(xLabel, origin.geometry.y - (y -origin.geometry.y)/2, point, origin, vertical, scale_value, parameter_name, dim)
+            
+
+            # if sketch.originPoint == point:
+            #     ui.messageBox(f'ITS THE ORIGIN', CMD_NAME)
+            #     continue
 
             
-            hText = adsk.core.Point3D.create(xLabel, origin.geometry.y - (y -origin.geometry.y)/2, 0)
-            distanceDimension = dim.addDistanceDimension(origin, point, vertical, hText)
+            # hText = adsk.core.Point3D.create(xLabel, origin.geometry.y - (y -origin.geometry.y)/2, 0)
+            # distanceDimension = dim.addDistanceDimension(origin, point, vertical, hText)
+            # distanceDimension.attributes.add(config.COMPANY_NAME, config.ATTR_CREATEDBY, CMD_NAME)
 
-            if scale_value:
-                value = distanceDimension.value / scale_value
-                distanceDimension.parameter.expression = f'{parameter_name} * {value}'
+            # if scale_value:
+            #     value = distanceDimension.value / scale_value
+            #     distanceDimension.parameter.expression = f'{parameter_name} * {value}'
             xLabel += label_offset
     
     xLabel = xLabelBase
     for (point, y) in sorted(posYpoints, key=itemgetter(1)):
         if not point.isFullyConstrained:
-            textPalette.writeText(f'posYpoints at ({point.geometry.x}, {point.geometry.y})')
-            adsk.doEvents()
+            futil.log(f'posYpoints at ({point.geometry.x}, {point.geometry.y})')
 
-            if sketch.originPoint == point:
-                ui.messageBox(f'ITS THE ORIGIN', CMD_NAME)
-                continue
+            create_dimension(xLabel, origin.geometry.y + (y - origin.geometry.y)/2, point, origin, vertical, scale_value, parameter_name, dim)
+            
+
+            # if sketch.originPoint == point:
+            #     ui.messageBox(f'ITS THE ORIGIN', CMD_NAME)
+            #     continue
 
             
-            hText = adsk.core.Point3D.create(xLabel, origin.geometry.y + (y - origin.geometry.y)/2, 0)
-            distanceDimension = dim.addDistanceDimension(origin, point, vertical, hText)
+            # hText = adsk.core.Point3D.create(xLabel, origin.geometry.y + (y - origin.geometry.y)/2, 0)
+            # distanceDimension = dim.addDistanceDimension(origin, point, vertical, hText)
+            # distanceDimension.attributes.add(config.COMPANY_NAME, config.ATTR_CREATEDBY, CMD_NAME)
 
-            if scale_value:
-                value = distanceDimension.value / scale_value
-                distanceDimension.parameter.expression = f'{parameter_name} * {value}'
+            # if scale_value:
+            #     value = distanceDimension.value / scale_value
+            #     distanceDimension.parameter.expression = f'{parameter_name} * {value}'
             xLabel += label_offset
-      
-    textPalette.writeText(f'Command execution complete')
-    adsk.doEvents()
+    
+    for curve in sketch.sketchCurves:
+        if not curve.isFullyConstrained:
+            textPoint = adsk.core.Point3D.create(
+                curve.boundingBox.minPoint.x + (curve.boundingBox.maxPoint.x - curve.boundingBox.minPoint.x)/2,
+                curve.boundingBox.minPoint.y + (curve.boundingBox.maxPoint.y - curve.boundingBox.minPoint.y)/2, 0)
+            try:
+                diameterDimension = dim.addDiameterDimension(curve, textPoint)
+            except:
+                continue
+            else:
+                if scale_value:
+                    value = diameterDimension.value / scale_value
+                    diameterDimension.parameter.expression = f'{parameter_name} * {value}'
+    futil.log(f'Command execution complete')
+    
 
 
 # This event handler is called when the command needs to compute a new preview in the graphics window.
@@ -342,8 +381,8 @@ def command_validate_input(args: adsk.core.ValidateInputsEventArgs):
     # Verify the validity of the input values. This controls if the OK button is enabled or not.
     spacing_control: adsk.core.ValueCommandInput = inputs.itemById(DIMENSION_SPACING)
 
-    textPalette.writeText(f'spacing_control.value="{spacing_control.value}" spacing_control.expression="{spacing_control.expression}" spacing_control.isValidExpression={spacing_control.isValidExpression}')
-    adsk.doEvents()
+    futil.log(f'spacing_control.value="{spacing_control.value}" spacing_control.expression="{spacing_control.expression}" spacing_control.isValidExpression={spacing_control.isValidExpression}')
+    
 
 
 
@@ -359,8 +398,8 @@ def command_validate_input(args: adsk.core.ValidateInputsEventArgs):
     # if spacing_error:
     #     args.areInputsValid = False
 
-    #     textPalette.writeText(f'spacing_control.formattedText {spacing_control.formattedText})')
-    #     adsk.doEvents()
+    #     futil.log(f'spacing_control.formattedText {spacing_control.formattedText})')
+    #     
         
     #     return
     
@@ -369,8 +408,8 @@ def command_validate_input(args: adsk.core.ValidateInputsEventArgs):
     
     parameter_name = scale_parameter.text
 
-    textPalette.writeText(f'parameter_name="{parameter_name}" len={parameter_name.__len__()} formatted={scale_parameter.formattedText}')
-    adsk.doEvents()
+    futil.log(f'parameter_name="{parameter_name}" len={parameter_name.__len__()} formatted={scale_parameter.formattedText}')
+    
 
     if parameter_name.__len__() > 0:
         
@@ -404,5 +443,5 @@ def command_destroy(args: adsk.core.CommandEventArgs):
     global local_handlers
     local_handlers = []
 
-    textPalette.writeText(f'command destroy complete')
-    adsk.doEvents()
+    futil.log(f'command destroy complete')
+    
