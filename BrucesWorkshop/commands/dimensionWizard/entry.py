@@ -4,6 +4,7 @@ import os
 from ...lib import fusionAddInUtils as futil
 from ... import config
 from operator import itemgetter
+from typing import List
 
 app = adsk.core.Application.get()
 ui = app.userInterface
@@ -16,6 +17,7 @@ POINT_SELECTION = 'point_selection'
 DIMENSION_SPACING = 'dimension_spacing'
 SCALE_PARAMETER = 'scale_parameter'
 SCALE_PARAMETER_VALUE = 'scale_parameter_value'
+METHOD = 'method'
 
 # Specify that the command will be promoted to the panel.
 IS_PROMOTED = False
@@ -35,6 +37,14 @@ ICON_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resource
 # they are not released and garbage collected.
 local_handlers = []
 
+class PointData:
+    def __init__(self, point: adsk.fusion.SketchPoint):
+        self.point = point
+        self.hx: float | None = None
+        self.hy: float | None = None
+        self.vx: float | None = None
+        self.vy: float | None = None
+        self.swapped = False
 
 # Executed when add-in is run.
 def start():
@@ -84,8 +94,6 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     # https://help.autodesk.com/view/fusion360/ENU/?contextId=CommandInputs
     inputs = args.command.commandInputs
 
-    # TODO Define the dialog for your command by adding different inputs to the command.
-
     origin_mode = inputs.addDropDownCommandInput(ORIGIN_MODE, 'Dimension Origin',  adsk.core.DropDownStyles.TextListDropDownStyle )
     origin_mode.listItems.add('Model Origin', True)
     origin_mode.listItems.add('Selection', False)
@@ -107,10 +115,13 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     scale_control.isMinimumLimited = True
     scale_control.value
 
-    # TODO Connect to the events that are needed by this command.
+    method = inputs.addDropDownCommandInput(METHOD, 'Method',  adsk.core.DropDownStyles.TextListDropDownStyle )
+    method.listItems.add('Original', False)
+    method.listItems.add('Rectangular', True)
+
     futil.add_handler(args.command.execute, command_execute, local_handlers=local_handlers)
     futil.add_handler(args.command.inputChanged, command_input_changed, local_handlers=local_handlers)
-    futil.add_handler(args.command.executePreview, command_preview, local_handlers=local_handlers)
+    # futil.add_handler(args.command.executePreview, command_preview, local_handlers=local_handlers)
     futil.add_handler(args.command.validateInputs, command_validate_input, local_handlers=local_handlers)
     futil.add_handler(args.command.destroy, command_destroy, local_handlers=local_handlers)
 
@@ -126,7 +137,7 @@ def create_dimension(xLabel: float, yLabel: float, point: adsk.fusion.SketchPoin
     try:
         distanceDimension = dim.addDistanceDimension(origin, point, horizontal, hText)
     except:
-        return
+        return None
     
     distanceDimension.attributes.add(config.COMPANY_NAME, config.ATTR_CREATEDBY, CMD_NAME)
 
@@ -134,7 +145,7 @@ def create_dimension(xLabel: float, yLabel: float, point: adsk.fusion.SketchPoin
         value = distanceDimension.value / scale_value
         distanceDimension.parameter.expression = f'{parameter_name} * {value}'
 
-
+    return distanceDimension
 
 # This event handler is called when the user clicks the OK button in the command dialog or 
 # is immediately called after the created event not command inputs were created for the dialog.
@@ -167,6 +178,7 @@ def command_execute(args: adsk.core.CommandEventArgs):
     point_selection: adsk.core.SelectionCommandInput = inputs.itemById(POINT_SELECTION)
     spacing_control: adsk.core.ValueCommandInput = inputs.itemById(DIMENSION_SPACING)
     label_offset = spacing_control.value
+    method_control: adsk.core.DropDownCommandInput = inputs.itemById(METHOD)
 
     futil.log(f'label_offset="{label_offset}" spacing_control.expression="{spacing_control.expression}" spacing_control.isValidExpression={spacing_control.isValidExpression}')
     
@@ -191,6 +203,160 @@ def command_execute(args: adsk.core.CommandEventArgs):
     else:
         scale_value = None
     
+    if method_control.listItems.item(0).isSelected:
+        execute_original(args, sketch, label_offset, origin, parameter_name, scale_value)
+        return
+    
+    if method_control.listItems.item(1).isSelected:
+        execute_rectangular(args, sketch, label_offset, origin, parameter_name, scale_value)
+        return
+    
+    ui.messageBox('Unknown method!', CMD_NAME)
+
+def execute_rectangular(args: adsk.core.CommandEventArgs, sketch: adsk.fusion.Sketch, label_offset: float, origin: adsk.fusion.SketchPoint, parameter_name: str, scale_value: float | None):
+    # General logging for debug.
+    futil.log(f'{CMD_NAME} Command Execute Event')
+
+    xLabelBase = sketch.boundingBox.maxPoint.x + label_offset
+    yLabelBase = sketch.boundingBox.maxPoint.y + label_offset
+    dim = sketch.sketchDimensions
+
+    points: List[PointData] = []
+    negXpoints = []
+    posXpoints = []
+    negYpoints = []
+    posYpoints = []
+    for point in sketch.sketchPoints:
+        if not point.isFullyConstrained:
+            index = points.__len__()
+            points.append(PointData(point))
+            #futil.log(f'new PointData[{index}] {points[index]}.')
+        
+            hasHorizontal = False
+            hasVertical = False
+
+            for dimension in point.sketchDimensions:
+                #futil.log(f'Existing dimension at ({dimension.textPosition.x}, {dimension.textPosition.y}) token "{dimension.entityToken}" has classType "{dimension.classType()}" objectType "{dimension.objectType}.')
+
+                ld = adsk.fusion.SketchLinearDimension.cast(dimension)
+                if ld:
+                #     textPalette.writeText(f'NON linear')
+                # else:
+                    if ld.entityOne == origin or ld.entityTwo == origin:
+                        #futil.log(f'Its linear orientation "{ld.orientation}.')
+                        if ld.orientation == adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation:
+                            hasHorizontal = True
+                        elif ld.orientation == adsk.fusion.DimensionOrientations.VerticalDimensionOrientation:
+                            hasVertical = True
+
+                
+            
+            if not hasHorizontal:
+                if point.geometry.x < origin.geometry.x:
+                    negXpoints.append((index, origin.geometry.x - point.geometry.x))
+                if point.geometry.x > origin.geometry.x:
+                    posXpoints.append((index, point.geometry.x - origin.geometry.x))
+            
+            if not hasVertical:
+                if point.geometry.y < origin.geometry.y:
+                    posYpoints.append((index, origin.geometry.y - point.geometry.y))
+                if point.geometry.y > origin.geometry.y:
+                    negYpoints.append((index, point.geometry.y - origin.geometry.y))
+
+
+
+    yLabel = yLabelBase
+    for (i, x) in sorted(negXpoints, key=itemgetter(1)):
+        point_data: PointData = points[i]
+        point_data.hx = origin.geometry.x - x/2
+        point_data.hy = yLabel
+        yLabel += label_offset
+    
+    yLabel = yLabelBase
+    for (i, x) in sorted(posXpoints, key=itemgetter(1)):
+        point_data: PointData = points[i]
+        point_data.hx = origin.geometry.x + x/2
+        point_data.hy = yLabel
+        yLabel += label_offset
+    
+    xLabel = xLabelBase
+    for (i, y) in sorted(negYpoints, key=itemgetter(1)):
+        point_data: PointData = points[i]
+        point_data.vx = xLabel
+        point_data.vy = origin.geometry.y + y/2
+        point_data.swapped = True
+        xLabel += label_offset
+    
+    xLabel = xLabelBase
+    for (i, y) in sorted(posYpoints, key=itemgetter(1)):
+        point_data: PointData = points[i]
+        point_data.vx = xLabel
+        point_data.vy = origin.geometry.y - y/2
+        xLabel += label_offset
+    
+    for point_data in points:
+        if point_data.hx and point_data.hy:
+            h = create_dimension(point_data.hx, point_data.hy, origin, point_data.point, adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation, scale_value, parameter_name, dim)
+            
+        if point_data.vx and point_data.vy:
+            if point_data.swapped:
+                v = create_dimension(point_data.vx, point_data.vy, point_data.point, origin, adsk.fusion.DimensionOrientations.VerticalDimensionOrientation, scale_value, parameter_name, dim)
+            else:
+                v = create_dimension(point_data.vx, point_data.vy, origin, point_data.point, adsk.fusion.DimensionOrientations.VerticalDimensionOrientation, scale_value, parameter_name, dim)
+            
+    
+    for curve in sketch.sketchCurves:
+        if not curve.isFullyConstrained:
+            textPoint = adsk.core.Point3D.create(
+                curve.boundingBox.minPoint.x + (curve.boundingBox.maxPoint.x - curve.boundingBox.minPoint.x)/2,
+                curve.boundingBox.minPoint.y + (curve.boundingBox.maxPoint.y - curve.boundingBox.minPoint.y)/2, 0)
+            try:
+                diameterDimension = dim.addDiameterDimension(curve, textPoint)
+            except:
+                continue
+            else:
+                if scale_value:
+                    value = diameterDimension.value / scale_value
+                    diameterDimension.parameter.expression = f'{parameter_name} * {value}'
+    
+    if not origin.isFullyConstrained:
+        hasHorizontal = False
+        hasVertical = False
+        for dimension in origin.sketchDimensions:
+                #futil.log(f'Existing dimension at ({dimension.textPosition.x}, {dimension.textPosition.y}) token "{dimension.entityToken}" has classType "{dimension.classType()}" objectType "{dimension.objectType}.')
+
+                ld = adsk.fusion.SketchLinearDimension.cast(dimension)
+                if ld:
+                #     textPalette.writeText(f'NON linear')
+                # else:
+                    if ld.entityOne == sketch.originPoint or ld.entityTwo == sketch.originPoint:
+                        #futil.log(f'Its linear orientation "{ld.orientation}.')
+                        if ld.orientation == adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation:
+                            hasHorizontal = True
+                        elif ld.orientation == adsk.fusion.DimensionOrientations.VerticalDimensionOrientation:
+                            hasVertical = True
+
+                
+            
+        xLabelBase = sketch.boundingBox.minPoint.x - label_offset
+        yLabelBase = sketch.boundingBox.minPoint.y - label_offset
+
+        futil.log(f'Origin {hasHorizontal} {hasVertical}')
+
+        if not hasHorizontal:
+            create_dimension(origin.geometry.x / 2, yLabelBase, origin, sketch.originPoint, adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation, None, parameter_name, dim)
+        
+        if not hasVertical:
+            create_dimension(xLabelBase, origin.geometry.y / 2, origin, sketch.originPoint, adsk.fusion.DimensionOrientations.VerticalDimensionOrientation, None, parameter_name, dim)
+        
+    else:
+        futil.log(f'Origin fully constrained')
+    futil.log(f'Command execution complete')
+    
+
+def execute_original(args: adsk.core.CommandEventArgs, sketch: adsk.fusion.Sketch, label_offset: float, origin: adsk.fusion.SketchPoint, parameter_name: str, scale_value: float | None):
+    # General logging for debug.
+    futil.log(f'{CMD_NAME} Command Execute Event')
 
     xLabelBase = sketch.boundingBox.maxPoint.x + label_offset
     yLabelBase = sketch.boundingBox.maxPoint.y + label_offset
@@ -337,8 +503,6 @@ def command_execute(args: adsk.core.CommandEventArgs):
                     value = diameterDimension.value / scale_value
                     diameterDimension.parameter.expression = f'{parameter_name} * {value}'
     futil.log(f'Command execution complete')
-    
-
 
 # This event handler is called when the command needs to compute a new preview in the graphics window.
 def command_preview(args: adsk.core.CommandEventArgs):
