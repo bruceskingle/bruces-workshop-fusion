@@ -5,6 +5,7 @@
 # You need to use aliases (import "entry" as "my_module") assuming you have the default module named "entry".
 from .dimensionWizard import entry as dimensionWizard
 from .deleteDimensions import entry as deleteDimensions
+from .gridWizard import entry as gridWizard
 # from .paletteSend import entry as paletteSend
 
 # TODO add your imported modules to this list.
@@ -12,6 +13,7 @@ from .deleteDimensions import entry as deleteDimensions
 commands = [
     dimensionWizard,
     deleteDimensions,
+    gridWizard,
     # paletteShow,
     # paletteSend
 ]

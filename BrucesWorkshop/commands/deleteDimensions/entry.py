@@ -158,6 +158,27 @@ def command_execute(args: adsk.core.CommandEventArgs):
                         # found_undeletable = True
      
 
+        if not delete_all:
+            for line in sketch.sketchCurves.sketchLines:
+                # futil.log(f'line = {line}')
+                created_by = None
+                attr_group = line.attributes.itemsByGroup(config.COMPANY_NAME)
+                # futil.log(f'attr_group = {attr_group}')
+                if attr_group:
+                    for attr in attr_group:
+                        # futil.log(f'attr = {attr}')
+                        if attr.name == config.ATTR_CREATEDBY:
+                            created_by = attr.value
+
+                if created_by:
+                    # futil.log(f'Trace 4')
+                    #futil.log(f'Delete dimension at ({dimension.textPosition.x}, {dimension.textPosition.y}).')
+                    if line.isDeletable:
+                        # futil.log(f'Do it!')
+                        if line.deleteMe():
+                            deleted_anything = True
+                        else:
+                            ui.messageBox('Failed to delete a deletable line.', CMD_NAME)
     futil.log(f'Command execution complete')
     
 
