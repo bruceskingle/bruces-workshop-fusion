@@ -6,6 +6,9 @@
 from .dimensionWizard import entry as dimensionWizard
 from .deleteDimensions import entry as deleteDimensions
 from .gridWizard import entry as gridWizard
+from .addCircles import entry as addCircles
+from .xAxisLabel import entry as xAxisLabel
+from .yAxisLabel import entry as yAxisLabel
 # from .paletteSend import entry as paletteSend
 
 # TODO add your imported modules to this list.
@@ -14,6 +17,9 @@ commands = [
     dimensionWizard,
     deleteDimensions,
     gridWizard,
+    addCircles,
+    xAxisLabel,
+    yAxisLabel,
     # paletteShow,
     # paletteSend
 ]
